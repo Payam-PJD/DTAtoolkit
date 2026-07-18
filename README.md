@@ -57,15 +57,6 @@ Load the package with:
 library(DTAtoolkit)
 ```
 
-## Requirements
-
-The public beta was checked with R 4.2.1. Its declared minimum imported
-package versions are `codetools` 0.2.18, `digest` 0.6.31, `doParallel` 1.0.17,
-`doSNOW` 1.0.20, `dplyr` 1.1.3, `foreach` 1.5.2, `ggplot2` 3.5.1, `mada`
-0.5.11, `MASS` 7.3.60, `meta` 6.2.1, and `scales` 1.3.0. Optional features
-have been checked with `ggplotify` 0.1.2, `gridExtra` 2.3, `metafor` 4.2.0,
-`mvmeta` 1.0.3, `MVPBT` 1.1.1, and `patchwork` 1.3.1. These versions or later
-versions satisfy the package's declared version requirements.
 
 ## Example data
 
