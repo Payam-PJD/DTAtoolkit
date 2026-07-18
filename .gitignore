@@ -1,0 +1,47 @@
+# R and RStudio session files
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# Built packages and check output
+*.tar.gz
+*.tgz
+*.zip
+*.Rcheck/
+*.Rcheck
+check/
+
+# Generated figures and platform files
+Rplots.pdf
+.DS_Store
+Thumbs.db
+
+# Editor and local-agent state
+.vscode/
+.idea/
+.codex/
+.agents/
+
+# Private legacy sources and conversion utilities
+My_Mada_functions.R
+My_Mada_functions*.R
+sample1/
+Meta_code.R
+test_legacy_compatibility.R
+test_new_api.R
+legacy-converters/
+legacy_converters/
+converters/
+conversion/
+internal/
+private/
+scripts/convert*.R
+scripts/*legacy*.R
+
+# Local smoke checks are intentionally not part of the public repository
+tests/smoke.R
+tests/smoke-*.R
+smoke.R
+smoke-*.R

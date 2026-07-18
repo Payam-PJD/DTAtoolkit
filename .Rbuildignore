@@ -1,0 +1,14 @@
+^\.git$
+^\.github$
+^\.gitignore$
+^\.gitattributes$
+^.*\.Rproj$
+^\.Rproj\.user$
+^internal$
+^private$
+^converters?$
+^conversion$
+^legacy[-_]converters$
+^sample1$
+^tests/smoke.*\.R$
+^smoke.*\.R$
