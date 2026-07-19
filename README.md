@@ -48,7 +48,11 @@ To install the current GitHub version:
 
 ```r
 install.packages("remotes")
-remotes::install_github("Payam-PJD/DTAtoolkit", dependencies = TRUE)
+remotes::install_git(
+  "https://github.com/Payam-PJD/DTAtoolkit.git",
+  ref = "main",
+  dependencies = TRUE
+)
 ```
 
 Load the package with:
