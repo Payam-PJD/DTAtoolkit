@@ -110,10 +110,11 @@ The pooled Reitsma result in every forest display is labelled
 \sQuote{Bivariate model}. The generic random-effects label is not used.
 }
 \section{Forest panel ratio and text size}{
-Combined plots accept \code{sensitivity_width_adjustment}, a percentage-point
-change to the dynamically calculated sensitivity-panel share. The specificity
-share changes by the opposite amount, so \code{1} changes 70/30 to 71/29.
-Legacy combined functions expose \code{sensitivity.width.adjustment}.
+Combined plots accept \code{left_panel_width_adjustment}, a percentage-point
+change to the dynamically calculated left-panel share. The right-panel share
+changes by the opposite amount. The deprecated
+\code{sensitivity_width_adjustment} alias remains accepted, and legacy
+combined functions expose \code{sensitivity.width.adjustment}.
 \code{font_size} in the preferred API and \code{fontsize} in legacy forest
 functions control forest text size.
 }

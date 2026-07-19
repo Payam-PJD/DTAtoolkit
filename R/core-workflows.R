@@ -505,15 +505,52 @@ forest.diag <- function(dat,
 
 
 .dta_forest_grob_width <- function(grob, units = "cm") {
-  width <- tryCatch({
-    if (!is.null(grob$widths)) {
-      grid::convertWidth(sum(grob$widths), units, valueOnly = TRUE)
-    } else {
-      grid::convertWidth(grid::grobWidth(grob), units, valueOnly = TRUE)
-    }
-  }, error = function(e) NA_real_)
+  if (is.null(grob)) return(NA_real_)
 
-  as.numeric(width)[1]
+  convert_width <- function(x) {
+    value <- tryCatch(
+      grid::convertWidth(x, units, valueOnly = TRUE),
+      error = function(e) NA_real_
+    )
+    value <- as.numeric(value)[1]
+    if (is.finite(value) && value > 0) value else NA_real_
+  }
+
+  # grid.grabExpr() returns a gTree whose own grobWidth is zero. The natural
+  # width of a meta::forest() plot is held in the layout of its captured root
+  # viewport, including text-derived grobwidth units. Traverse the viewport
+  # tree so automatic layout also works with meta versions predating
+  # meta::forest_dims().
+  viewport_widths <- numeric()
+  visit_viewports <- function(x) {
+    if (is.null(x)) return(invisible(NULL))
+    if (inherits(x, "vpTree")) {
+      visit_viewports(x$parent)
+      visit_viewports(x$children)
+      return(invisible(NULL))
+    }
+    if (inherits(x, "vpList")) {
+      for (i in seq_along(x)) visit_viewports(x[[i]])
+      return(invisible(NULL))
+    }
+    if (inherits(x, "viewport")) {
+      layout_widths <- x$layout$widths
+      if (!is.null(layout_widths)) {
+        value <- convert_width(sum(layout_widths))
+        if (is.finite(value)) viewport_widths <<- c(viewport_widths, value)
+      }
+    }
+    invisible(NULL)
+  }
+  visit_viewports(grob$childrenvp)
+
+  candidates <- viewport_widths
+  if (!is.null(grob$widths)) {
+    candidates <- c(candidates, convert_width(sum(grob$widths)))
+  }
+  candidates <- c(candidates, convert_width(grid::grobWidth(grob)))
+  candidates <- candidates[is.finite(candidates) & candidates > 0]
+  if (length(candidates)) max(candidates) else NA_real_
 }
 
 .dta_forest_width <- function(meta.object, forest.args, grob = NULL,
@@ -611,6 +648,15 @@ forest.diag <- function(dat,
 
 .dta_capture_forest <- function(plot.function, dims = NULL,
                                 height = NULL) {
+  muffle_display_warning <- function(w) {
+    if (grepl(
+      "unsupported operation on the graphics display list",
+      conditionMessage(w),
+      fixed = TRUE
+    )) {
+      invokeRestart("muffleWarning")
+    }
+  }
   if (!is.null(dims)) {
     if (is.null(height)) height <- dims$height
     return(withCallingHandlers(
@@ -620,22 +666,19 @@ forest.diag <- function(dat,
         width = dims$width,
         height = height
       ),
-      warning = function(w) {
-        if (grepl(
-          "unsupported operation on the graphics display list",
-          conditionMessage(w),
-          fixed = TRUE
-        )) {
-          invokeRestart("muffleWarning")
-        }
-      }
+      warning = muffle_display_warning
     ))
   }
-  ggplotify::as.grob(plot.function)
+  withCallingHandlers(
+    ggplotify::as.grob(plot.function),
+    warning = muffle_display_warning
+  )
 }
 
 .dta_fit_forests_to_device <- function(meta.sens, sens.args,
                                        meta.spec, spec.args,
+                                       grob.sens = NULL,
+                                       grob.spec = NULL,
                                        enabled = TRUE,
                                        device.padding.in = 0.15,
                                        minimum.scale = 0.6) {
@@ -646,8 +689,14 @@ forest.diag <- function(dat,
     error = function(e) NA_real_
   )
   available.width <- device.width - 2 * device.padding.in
-  natural.width <- if (!is.null(sens.dims) && !is.null(spec.dims)) {
-    sens.dims$width + spec.dims$width
+  natural.widths <- c(
+    sensitivity = if (!is.null(sens.dims)) sens.dims$width else
+      .dta_forest_grob_width(grob.sens, "in"),
+    specificity = if (!is.null(spec.dims)) spec.dims$width else
+      .dta_forest_grob_width(grob.spec, "in")
+  )
+  natural.width <- if (all(is.finite(natural.widths))) {
+    sum(natural.widths)
   } else {
     NA_real_
   }
@@ -660,8 +709,19 @@ forest.diag <- function(dat,
     spec.fontsize <- .dta_resolve_forest_fontsize(spec.args$fontsize)
     sens.args$fontsize <- sens.fontsize * scale
     spec.args$fontsize <- spec.fontsize * scale
-    sens.args$plotwidth <- grid::unit(6 * scale, "cm")
-    spec.args$plotwidth <- grid::unit(6 * scale, "cm")
+    scale_plotwidth <- function(plotwidth) {
+      width.cm <- if (is.null(plotwidth)) {
+        6
+      } else {
+        tryCatch(
+          grid::convertWidth(plotwidth, "cm", valueOnly = TRUE),
+          error = function(e) 6
+        )
+      }
+      grid::unit(as.numeric(width.cm)[1] * scale, "cm")
+    }
+    sens.args$plotwidth <- scale_plotwidth(sens.args$plotwidth)
+    spec.args$plotwidth <- scale_plotwidth(spec.args$plotwidth)
     if (!is.null(sens.args$fs.hetstat)) {
       sens.args$fs.hetstat <- sens.args$fs.hetstat * scale
     }
@@ -678,14 +738,88 @@ forest.diag <- function(dat,
     sens.dims = sens.dims,
     spec.dims = spec.dims,
     scale = scale,
+    natural.widths.in = natural.widths,
     device.width.in = device.width,
     available.width.in = available.width
   )
 }
 
+.dta_capture_and_fit_forests <- function(meta.sens, sens.args,
+                                         meta.spec, spec.args,
+                                         enabled = TRUE,
+                                         minimum.scale = 0.6,
+                                         maximum.iterations = 3L) {
+  capture_pair <- function() {
+    sens.dims <- .dta_forest_dims(meta.sens, sens.args)
+    spec.dims <- .dta_forest_dims(meta.spec, spec.args)
+    common.height <- if (!is.null(sens.dims) && !is.null(spec.dims)) {
+      max(sens.dims$height, spec.dims$height)
+    } else {
+      NULL
+    }
+    list(
+      sens.dims = sens.dims,
+      spec.dims = spec.dims,
+      grob.sens = .dta_capture_forest(
+        function() do.call(meta::forest, c(list(x = meta.sens), sens.args)),
+        sens.dims, common.height
+      ),
+      grob.spec = .dta_capture_forest(
+        function() do.call(meta::forest, c(list(x = meta.spec), spec.args)),
+        spec.dims, common.height
+      )
+    )
+  }
+
+  captured <- capture_pair()
+  cumulative.scale <- 1
+  device.fit <- NULL
+  for (iteration in seq_len(maximum.iterations)) {
+    # The first pass respects the public readability floor. Later passes only
+    # correct the small residual caused by text and fixed gaps not scaling
+    # perfectly with font size.
+    iteration.minimum <- if (iteration == 1L) minimum.scale else 0.1
+    device.fit <- .dta_fit_forests_to_device(
+      meta.sens = meta.sens,
+      sens.args = sens.args,
+      meta.spec = meta.spec,
+      spec.args = spec.args,
+      grob.sens = captured$grob.sens,
+      grob.spec = captured$grob.spec,
+      enabled = enabled,
+      minimum.scale = iteration.minimum
+    )
+    if (!isTRUE(enabled) || device.fit$scale >= 0.995) break
+
+    sens.args <- device.fit$sens.args
+    spec.args <- device.fit$spec.args
+    cumulative.scale <- cumulative.scale * device.fit$scale
+    captured <- capture_pair()
+  }
+
+  if (is.null(device.fit)) {
+    stop("Internal forest device fitting failed.", call. = FALSE)
+  }
+  synced <- .dta_sync_forest_heights(
+    captured$grob.sens, captured$grob.spec
+  )
+
+  list(
+    sens.args = sens.args,
+    spec.args = spec.args,
+    sens.dims = captured$sens.dims,
+    spec.dims = captured$spec.dims,
+    grob.sens = synced$grob1,
+    grob.spec = synced$grob2,
+    scale = cumulative.scale,
+    device.width.in = device.fit$device.width.in,
+    available.width.in = device.fit$available.width.in
+  )
+}
+
 .dta_draw_combined_forests <- function(grob.sens, grob.spec,
                                        forest.layout,
-                                       inner.trim.cm = 0.4) {
+                                       inner.trim.cm = 0) {
   auto.widths <- forest.layout$mode == "auto" &&
     all(is.finite(forest.layout$widths.cm))
 
@@ -808,7 +942,7 @@ forest.diag.combined <- function(dat,
                                  layout.mode = c("auto", "manual"),
                                  auto.fit.device = TRUE,
                                  auto.minimum.scale = 0.6,
-                                 auto.inner.trim.cm = 0.4,
+                                 auto.inner.trim.cm = 0,
                                  study.names = NULL, TP = NULL, TN = NULL,
                                  FP = NULL, FN = NULL, uniquer.row.id = NULL,
                                  study.id = NULL,
@@ -931,10 +1065,6 @@ forest.diag.combined <- function(dat,
     calcwidth.addline = calcwidth.addline.opt,
     just = "center"
   )
-  plot_sens <- function() {
-    do.call(meta::forest, c(list(x = metaprop.sens), sens.forest.args))
-  }
-  
   # Generate the specificity forest plot and capture it as a grob
   
   manual.layout <- layout.mode == "manual" || !is.null(ratio)
@@ -975,10 +1105,7 @@ forest.diag.combined <- function(dat,
     calcwidth.addline = calcwidth.addline.opt,
     just = "center"
   )
-  plot_spec <- function() {
-    do.call(meta::forest, c(list(x = metaprop.spec), spec.forest.args))
-  }
-  device.fit <- .dta_fit_forests_to_device(
+  device.fit <- .dta_capture_and_fit_forests(
     meta.sens = metaprop.sens,
     sens.args = sens.forest.args,
     meta.spec = metaprop.spec,
@@ -988,19 +1115,8 @@ forest.diag.combined <- function(dat,
   )
   sens.forest.args <- device.fit$sens.args
   spec.forest.args <- device.fit$spec.args
-  sens.dims <- device.fit$sens.dims
-  spec.dims <- device.fit$spec.dims
-  common.height <- if (!is.null(sens.dims) && !is.null(spec.dims)) {
-    max(sens.dims$height, spec.dims$height)
-  } else {
-    NULL
-  }
-  grob.sens <- .dta_capture_forest(plot_sens, sens.dims, common.height)
-  grob.spec <- .dta_capture_forest(plot_spec, spec.dims, common.height)
-  
-  synced.grobs <- .dta_sync_forest_heights(grob.sens, grob.spec)
-  grob.sens <- synced.grobs$grob1
-  grob.spec <- synced.grobs$grob2
+  grob.sens <- device.fit$grob.sens
+  grob.spec <- device.fit$grob.spec
 
   forest.layout <- .dta_resolve_forest_layout(
     meta.sens = metaprop.sens,
@@ -1374,7 +1490,7 @@ forest.diag.subgroup.combined <- function(dat, # Diagnostic-accuracy dataframe; 
                                            layout.mode = c("auto", "manual"),
                                            auto.fit.device = TRUE,
                                            auto.minimum.scale = 0.6,
-                                           auto.inner.trim.cm = 0.4,
+                                           auto.inner.trim.cm = 0,
                                            only.subgroups.bigger.than.3 = T,
                                            omnibus.alpha = 0.05,
                                            pairwise = c("ask", "always", "never"),
@@ -1573,7 +1689,11 @@ forest.diag.subgroup.combined <- function(dat, # Diagnostic-accuracy dataframe; 
     test.subgroup = FALSE,
     text.random = if (plot.overall) "Bivariate model" else "",
     text.random.w = sens.subgroup.text,
-    text.addline2 = if (plot.overall) het.string(reitsmas$reitsma.overall) else "",
+    text.addline2 = if (plot.overall && plot.het.overall) {
+      het.string(reitsmas$reitsma.overall)
+    } else {
+      ""
+    },
     text.addline1 = paste("Between-group difference (p): ", round(reitsmas$anova.reitsma$statistic[3], digits = 3)),
     ref = if (plot.overall) 100 * props$sens$overall$TE.random else NA,
     calcwidth.random = calcwidth.shet.opt,
@@ -1581,10 +1701,6 @@ forest.diag.subgroup.combined <- function(dat, # Diagnostic-accuracy dataframe; 
     just = "center",
     overall = plot.overall
   )
-  plot_sens <- function() {
-    do.call(meta::forest, c(list(x = props$sens$overall), sens.forest.args))
-  }
-  
   # Generate the specificity forest plot and capture it as a grob
   manual.layout <- layout.mode == "manual" || !is.null(ratio)
   if (manual.layout) {
@@ -1633,10 +1749,7 @@ forest.diag.subgroup.combined <- function(dat, # Diagnostic-accuracy dataframe; 
     overall = plot.overall,
     col.subgroup = "white"
   )
-  plot_spec <- function() {
-    do.call(meta::forest, c(list(x = props$spec$overall), spec.forest.args))
-  }
-  device.fit <- .dta_fit_forests_to_device(
+  device.fit <- .dta_capture_and_fit_forests(
     meta.sens = props$sens$overall,
     sens.args = sens.forest.args,
     meta.spec = props$spec$overall,
@@ -1646,19 +1759,8 @@ forest.diag.subgroup.combined <- function(dat, # Diagnostic-accuracy dataframe; 
   )
   sens.forest.args <- device.fit$sens.args
   spec.forest.args <- device.fit$spec.args
-  sens.dims <- device.fit$sens.dims
-  spec.dims <- device.fit$spec.dims
-  common.height <- if (!is.null(sens.dims) && !is.null(spec.dims)) {
-    max(sens.dims$height, spec.dims$height)
-  } else {
-    NULL
-  }
-  grob.sens <- .dta_capture_forest(plot_sens, sens.dims, common.height)
-  grob.spec <- .dta_capture_forest(plot_spec, spec.dims, common.height)
-  
-  synced.grobs <- .dta_sync_forest_heights(grob.sens, grob.spec)
-  grob.sens <- synced.grobs$grob1
-  grob.spec <- synced.grobs$grob2
+  grob.sens <- device.fit$grob.sens
+  grob.spec <- device.fit$grob.spec
 
   forest.layout <- .dta_resolve_forest_layout(
     meta.sens = props$sens$overall,

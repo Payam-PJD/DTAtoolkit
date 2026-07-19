@@ -53,11 +53,18 @@ adjusted_forest <- do.call(
   dta_forest,
   c(list(
     data = dat, subgroup = "group", type = "combined", draw = FALSE,
-    sensitivity_width_adjustment = 1,
+    left_panel_width_adjustment = 1,
     font_size = 9, pairwise = "never"
   ), columns)
 )
 stopifnot(
+  !identical(adjusted_forest$result$layout$measurement, "fallback"),
+  all(is.finite(adjusted_forest$result$layout$widths.cm)),
+  !isTRUE(all.equal(
+    unname(adjusted_forest$result$layout$base.ratio),
+    c(0.7, 0.3),
+    check.attributes = FALSE
+  )),
   isTRUE(all.equal(
     adjusted_forest$result$layout$ratio,
     adjusted_forest$result$layout$base.ratio + c(0.01, -0.01),
@@ -68,6 +75,20 @@ stopifnot(
   ),
   identical(adjusted_forest$result$layout$font.size, 9)
 )
+
+# The former argument name remains a compatibility alias.
+resolve_adjustment <- getFromNamespace(
+  ".dta_resolve_left_panel_width_adjustment", "DTAtoolkit"
+)
+stopifnot(identical(
+  resolve_adjustment(
+    left_panel_width_adjustment = 0,
+    sensitivity_width_adjustment = 1,
+    preferred_supplied = FALSE,
+    legacy_supplied = TRUE
+  ),
+  1
+))
 
 # Preferred functions use data masking: bare names, character names, vectors,
 # and data$column expressions are all valid column selectors.

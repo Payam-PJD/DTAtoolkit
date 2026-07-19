@@ -204,6 +204,32 @@ print.dta_analysis <- function(x, ...) {
   unname(aliases[[key]])
 }
 
+.dta_resolve_left_panel_width_adjustment <- function(
+    left_panel_width_adjustment,
+    sensitivity_width_adjustment = NULL,
+    preferred_supplied = TRUE,
+    legacy_supplied = !is.null(sensitivity_width_adjustment)) {
+  if (isTRUE(preferred_supplied) && isTRUE(legacy_supplied) &&
+      !isTRUE(all.equal(
+        left_panel_width_adjustment,
+        sensitivity_width_adjustment,
+        check.attributes = FALSE
+      ))) {
+    stop(
+      "Use only 'left_panel_width_adjustment'. The deprecated ",
+      "'sensitivity_width_adjustment' alias was also supplied with a ",
+      "different value.",
+      call. = FALSE
+    )
+  }
+  value <- if (isTRUE(legacy_supplied) && !isTRUE(preferred_supplied)) {
+    sensitivity_width_adjustment
+  } else {
+    left_panel_width_adjustment
+  }
+  .dta_validate_forest_ratio_adjustment(value)
+}
+
 #' Unified forest plot for diagnostic accuracy meta-analysis
 #' @export
 dta_forest <- function(data,
@@ -237,14 +263,22 @@ dta_forest <- function(data,
                        tn = NULL,
                        fp = NULL,
                        fn = NULL,
-                       sensitivity_width_adjustment = 0,
-                       font_size = NULL) {
+                       left_panel_width_adjustment = 0,
+                       font_size = NULL,
+                       sensitivity_width_adjustment = NULL) {
   captured_call <- match.call(expand.dots = FALSE)
   calling_environment <- parent.frame()
+  preferred_adjustment_supplied <- !missing(left_panel_width_adjustment)
+  legacy_adjustment_supplied <-
+    !missing(sensitivity_width_adjustment) &&
+    !is.null(sensitivity_width_adjustment)
   type <- .dta_match_forest_type(type)
   pairwise <- match.arg(pairwise)
-  sensitivity_width_adjustment <- .dta_validate_forest_ratio_adjustment(
-    sensitivity_width_adjustment
+  left_panel_width_adjustment <- .dta_resolve_left_panel_width_adjustment(
+    left_panel_width_adjustment = left_panel_width_adjustment,
+    sensitivity_width_adjustment = sensitivity_width_adjustment,
+    preferred_supplied = preferred_adjustment_supplied,
+    legacy_supplied = legacy_adjustment_supplied
   )
   resolved.font_size <- .dta_resolve_forest_fontsize(font_size)
   if (!is.numeric(minimum_subgroup_studies) ||
@@ -325,7 +359,7 @@ dta_forest <- function(data,
       column_args
     )
     if (type == "combined") {
-      common$sensitivity.width.adjustment <- sensitivity_width_adjustment
+      common$sensitivity.width.adjustment <- left_panel_width_adjustment
       common$fontsize <- resolved.font_size
       target <- forest.diag.subgroup.combined
     } else {
@@ -349,7 +383,7 @@ dta_forest <- function(data,
       column_args
     )
     if (type == "combined") {
-      common$sensitivity.width.adjustment <- sensitivity_width_adjustment
+      common$sensitivity.width.adjustment <- left_panel_width_adjustment
       common$fontsize <- resolved.font_size
       target <- forest.diag.combined
     } else {
@@ -387,7 +421,7 @@ dta_forest <- function(data,
       omnibus_alpha = omnibus_alpha,
       pairwise = pairwise,
       p_adjust_method = p_adjust_method,
-      sensitivity_width_adjustment = sensitivity_width_adjustment,
+      left_panel_width_adjustment = left_panel_width_adjustment,
       font_size = font_size,
       draw = draw
     ),

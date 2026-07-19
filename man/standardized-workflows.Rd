@@ -32,12 +32,14 @@ is supplied and a pooled model otherwise. The \code{type} argument accepts
 \code{"sens"}, \code{"spec"}, or \code{"combined"}. Forest pooled rows are
 labelled \sQuote{Bivariate model}.
 
-For combined plots, \code{sensitivity_width_adjustment} changes the
-dynamically calculated sensitivity-panel share in percentage points, while
-the specificity share changes by the opposite amount. For example, a value of
-\code{1} changes 70/30 to 71/29 and \code{-1} changes it to 69/31. Zero
-preserves the automatic ratio. \code{font_size} sets the forest text size for
-pooled, subgroup, and combined plots.
+For combined plots, \code{left_panel_width_adjustment} changes the dynamically
+calculated left-panel share in percentage points, while the right-panel share
+changes by the opposite amount. For example, if automatic layout calculates
+57/43, a value of \code{1} changes it to 58/42 and \code{-1} changes it to
+56/44. Zero preserves the automatic ratio. The former
+\code{sensitivity_width_adjustment} name remains accepted as a deprecated
+compatibility alias. \code{font_size} sets the forest text size for pooled,
+subgroup, and combined plots.
 }
 \section{Influential analysis and subgroup inheritance}{
 \code{dta_influentials()} uses the bivariate mean-shift method by default and
